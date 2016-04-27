@@ -73,8 +73,15 @@ module Proxy::Dns::Dnscmd
 
     def remove_a_record(fqdn)
       zone = match_zone(fqdn, enum_zones)
-      msg = "Removed DNS entry #{fqdn}"
-      cmd = "/RecordDelete #{zone} #{fqdn}. A /f"
+      enum_records(zone, fqdn, 'A').each do |ip|
+        remove_specific_a_record_from_zone(zone, fqdn, ip)
+      end
+      nil
+    end
+
+    def remove_specific_a_record_from_zone(zone, fqdn, ip)
+      msg = "Removed #{ip} DNS entry from #{fqdn}"
+      cmd = "/RecordDelete #{zone} #{fqdn}. A #{ip} /f"
       execute(cmd, msg)
       nil
     end
@@ -97,8 +104,15 @@ module Proxy::Dns::Dnscmd
 
     def remove_ptr_record(ptr)
       zone = match_zone(ptr, enum_zones)
-      msg = "Removed PTR entry #{ptr}"
-      cmd = "/RecordDelete #{zone} #{ptr}. PTR /f"
+      enum_records(zone, ptr, 'PTR').each do |record|
+        remove_specific_ptr_record_from_zone(zone, ptr, record)
+      end
+      nil
+    end
+
+    def remove_specific_ptr_record_from_zone(zone, ptr, record)
+      msg = "Removed #{record} DNS entry for #{ptr}"
+      cmd = "/RecordDelete #{zone} #{ptr}. PTR #{record} /f"
       execute(cmd, msg)
       nil
     end
@@ -134,7 +148,7 @@ module Proxy::Dns::Dnscmd
         msg.sub! /Removed/,    "remove"
         msg.sub! /Added/,      "add"
         msg  = "Failed to #{msg}"
-        raise Proxy::Dns::Error.new(msg)
+        raise Proxy::Dns::Error.new(msg) unless response.grep(/DNS_ERROR_NAME_DOES_NOT_EXIST/).any? and msg == "Failed to EnumRecords"
       else
         logger.debug msg unless error_only
       end
@@ -173,6 +187,24 @@ module Proxy::Dns::Dnscmd
       end
       logger.debug "Enumerated authoritative dns zones: #{zones}"
       zones
+    end
+
+    def enum_records(zone_name, node_name, type)
+      records = []
+      response = execute "/EnumRecords #{zone_name} #{node_name}. /Type #{type}", "EnumRecords", true
+      response.each do |line|
+        line.chomp!
+        logger.debug "Extracting record from dnscmd output '#{line}'"
+        matches = /^@\s+(?<ttl>\d+)\s+(?<type>#{type})\s+(?<record>\S+)$/.match(line)
+        if matches.nil?
+          logger.debug "No DNS record found in this line"
+        else
+          logger.debug "Found record '#{matches['record']}'"
+          records << matches['record'] unless matches.nil?
+        end
+      end
+      logger.debug "Enumerated #{records.size} #{type} records for zone=#{zone_name} node=#{node_name} records=#{records}"
+      records
     end
   end
 end

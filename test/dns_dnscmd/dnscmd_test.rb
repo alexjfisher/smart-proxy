@@ -89,14 +89,27 @@ class DnsCmdTest < Test::Unit::TestCase
     end
   end
 
-  def test_remove_address_record_with_longest_zone_match
-    Proxy::Dns::Dnscmd::Record.any_instance.expects(:execute).with('/RecordDelete bar.domain.local host.foo.bar.domain.local. A /f', anything).returns(true)
+  def test_remove_address_records_with_longest_zone_match
+    Proxy::Dns::Dnscmd::Record.any_instance.expects(:enum_records).with('bar.domain.local', 'host.foo.bar.domain.local',  'A').returns(['1.1.1.1','2.2.2.2'])
+    Proxy::Dns::Dnscmd::Record.any_instance.expects(:remove_specific_a_record_from_zone).with('bar.domain.local', 'host.foo.bar.domain.local', '1.1.1.1').returns(true)
+    Proxy::Dns::Dnscmd::Record.any_instance.expects(:remove_specific_a_record_from_zone).with('bar.domain.local', 'host.foo.bar.domain.local', '2.2.2.2').returns(true)
     assert_nil @server.remove_a_record('host.foo.bar.domain.local')
   end
 
   def test_remove_ptr_record
-    Proxy::Dns::Dnscmd::Record.any_instance.expects(:execute).with('/RecordDelete 33.168.192.in-addr.arpa 33.33.168.192.in-addr.arpa. PTR /f', anything).returns(true)
+    Proxy::Dns::Dnscmd::Record.any_instance.expects(:enum_records).with('33.168.192.in-addr.arpa', '33.33.168.192.in-addr.arpa',  'PTR').returns(['host.domain.local'])
+    Proxy::Dns::Dnscmd::Record.any_instance.expects(:remove_specific_ptr_record_from_zone).with('33.168.192.in-addr.arpa', '33.33.168.192.in-addr.arpa', 'host.domain.local').returns(true)
     assert_nil @server.remove_ptr_record('33.33.168.192.in-addr.arpa')
+  end
+
+  def test_remove_specific_a_record_from_zone
+    Proxy::Dns::Dnscmd::Record.any_instance.expects(:execute).with('/RecordDelete domain.local host.domain.local. A 192.168.33.33 /f', anything).returns(true)
+    assert_nil @server.remove_specific_a_record_from_zone('domain.local', 'host.domain.local', '192.168.33.33')
+  end
+
+  def test_remove_specific_ptr_record_from_zone
+    Proxy::Dns::Dnscmd::Record.any_instance.expects(:execute).with('/RecordDelete 33.168.192.in-addr.arpa 33.33.168.192.in-addr.arpa. PTR host.domain.local /f', anything).returns(true)
+    assert_nil @server.remove_specific_ptr_record_from_zone('33.168.192.in-addr.arpa', '33.33.168.192.in-addr.arpa', 'host.domain.local')
   end
 
   def test_remove_cname_record
@@ -153,4 +166,18 @@ Command completed successfully.'.split("\n")
       "domain.local",
       "TrustAnchors"], Proxy::Dns::Dnscmd::Record.new.enum_zones
   end
+
+  def test_enum_records
+    to_parse = '
+Returned records:
+@ 3600 A    192.168.33.33
+@ 3600 A    192.168.33.34
+@ 3600 MX   192.168.33.1
+
+Command completed successfully.
+'.split("\n")
+    Proxy::Dns::Dnscmd::Record.any_instance.expects(:execute).with('/EnumRecords domain.local host.domain.local. /Type A', 'EnumRecords', true).returns(to_parse)
+    assert_equal ['192.168.33.33','192.168.33.34'], Proxy::Dns::Dnscmd::Record.new.enum_records('domain.local', 'host.domain.local', 'A')
+  end
+
 end
